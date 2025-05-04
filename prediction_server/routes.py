@@ -28,7 +28,7 @@ def watched_movies():
         return "user not found\n"
 
 
-@bp.route("/predict/popular")
+@bp.route("/recommend/popular")
 def predict_movies():
     user_id = request.args.get("user_id", "")
     try:

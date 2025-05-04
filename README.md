@@ -40,11 +40,12 @@ docker-compose up --build
 - **Airflow UI:** [http://localhost:8080](http://localhost:8080)
 - **API Endpoint:** [http://localhost:8000](http://localhost:8000)
 
+
 ## 📈 API Usage
 Once the API is running, you can access the popularity-based recommendations:
 
-- **Endpoint:** `/recommendations/popular`
-- **Method:** GET
+- **Endpoint:** `/recommend/popular`
+- **Method:** `GET`
 - **Response:**
 ```json
 {
