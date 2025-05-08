@@ -52,3 +52,31 @@ def predict_movies():
     except Exception as e:
         print("I'm in exception", e)
         return render_template("error.html", user_id=user_id), 500
+
+
+
+@bp.route("/recommend/fm")
+def predict_movies_fm():
+    user_id = request.args.get("user_id", "")
+    try:        
+        query = f"""
+            SELECT pr.movie_id, pr.predicted_rating, m.title AS movie_title
+            FROM predicted_ratings pr
+            JOIN item m ON pr.movie_id = m.movie_id
+            JOIN watching_list wl ON pr.user_id = wl.user_id
+            WHERE pr.movie_id != ALL(wl.watched_movies)
+                AND pr.user_id = {user_id}
+                # AND pr.user_id = :user_id  ## if use the other read_sql form with params
+            ORDER BY pr.predicted_rating DESC
+            LIMIT 5;
+        """
+        with engine.connect() as con:
+            top_predictions = pd.read_sql(query, con)
+            #  df = pd.read_sql(text(query), con, params={"user_id": user_id}) # also change line 69 if using this
+
+        print(top_predictions.movie_title)
+
+        return top_predictions["movie_title"].tolist()
+    except Exception as e:
+        print("FM recommendation error:", e)
+        return render_template("error.html", user_id=user_id), 500
