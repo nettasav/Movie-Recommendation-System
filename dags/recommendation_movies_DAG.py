@@ -10,6 +10,7 @@ import psycopg2
 import logging
 
 
+from fm_model_MBGD import FactorizationMachine
 
 def _data_ingestion():
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
@@ -64,6 +65,31 @@ def _create_watching_list_table():
     for row in rs:
         print(row)
 
+def _train():
+    engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    query = """
+            SELECT user_id, movie_id, rating
+            FROM data
+            """
+    with engine.connect() as con:
+        con.execute(query)
+        rs = con.execute(query)
+
+    df = pd.read_sql(query, engine)
+
+    X = df[["user_id", "movie_id"]].values
+    y = df["rating"].values
+
+    fm_model = FactorizationMachine(X, y, k=20, lambda_L2=0.001, learning_rate=0.001, batch_size=128
+        )
+    fm_model.fit(num_epochs=30, patience=2, tol=1e-6, print_cost=True)
+    y_pred = fm_model.predict(X)
+
+    df_predictions = df[["user_id", "movie_id"]].copy()
+    df_predictions["predicted_rating"] = y_pred
+
+    df_predictions.to_sql("predicted_ratings", engine, if_exists="append", index=False)
+
 
 default_args = {
     "owner": "airflow",
@@ -97,9 +123,15 @@ with DAG(
         dag=dag,
     )
     
+    training_task = PythonOperator(
+        task_id="train",
+        python_callable=_train,
+        dag=dag,
+    )
 
     # Define the order of execution
     (
         ingestion_task
         >> [create_movie_ranking_table, create_watching_list_table]
+        >> training_task
     )
