@@ -69,10 +69,16 @@ CREATE TABLE IF NOT EXISTS model_metrics (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     metric_name TEXT,
-    metric_value FLOAT
+    metric_value FLOAT,
+	run_id TEXT
 );
 
-
+CREATE TABLE IF NOT EXISTS best_score (
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    metric_name TEXT,
+    metric_value FLOAT,
+	run_id TEXT PRIMARY KEY
+);
 -- CREATE TABLE genre (
 -- 	"0" TEXT, 
 -- 	"1" BIGINT
