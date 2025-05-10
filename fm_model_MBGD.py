@@ -1,26 +1,34 @@
 import numpy as np
-
+import pickle
 
 class FactorizationMachine:
-    def __init__(self, X, y, k, lambda_L2=0.01, learning_rate=0.001, batch_size=32):
-        self.X = X
-        self.y = y
+    def __init__(self, X=None, y=None, k=10, lambda_L2=0.01, learning_rate=0.001, batch_size=32):
         self.k = k
         self.batch_size = batch_size 
-        self.w0 = 0
         self.lambda_L2 = lambda_L2
         self.learning_rate = learning_rate
-        self.n = X.shape[1]
-        self.m = X.shape[0]
-        self.max_values = np.max(X, axis=0)
-        self.V = np.random.normal(size=(sum(self.max_values) + 2, k))
-        self.w = np.random.randn(1, sum(self.max_values) + 2)
+        
+        self.w0 = None
+        self.W = None
+        self.V = None
+        self.n = None
+        self.m = None
+        self.max_values = None
         self.costs = []
 
-    def _one_hot_encoder(self, Xi):
+    def _initialize_weights(self, X):
+        self.n = X.shape[1]
+        self.m = X.shape[0]
+        max_values = np.max(X, axis=0)
+        self.V = np.random.normal(size=(sum(max_values) + 2, self.k))
+        self.w = np.random.randn(1, sum(max_values) + 2)
+        self.w0 = 0
+
+    
+    def _one_hot_encoder(self, Xi, max_values):
         encoded_Xi = np.empty(0, dtype=int)
         for idx, feature in enumerate(Xi):
-            encoded_feature = np.zeros(self.max_values[idx] + 1)
+            encoded_feature = np.zeros(max_values[idx] + 1)
             encoded_feature[feature] = 1
             encoded_Xi = np.concatenate((encoded_Xi, encoded_feature))
         return encoded_Xi
@@ -34,7 +42,8 @@ class FactorizationMachine:
         return np.array(y_pred)
 
     def predict(self, X):
-        X_encoded = np.array([self._one_hot_encoder(X[i]) for i in range(X.shape[0])])
+        max_values = np.max(X, axis=0)
+        X_encoded = np.array([self._one_hot_encoder(X[i], max_values) for i in range(X.shape[0])])
         linear_term = self.w0 + np.dot(X_encoded, self.w.T)
         interaction_term = 0.5 * np.sum(
             (X_encoded @ self.V) ** 2 - (X_encoded**2) @ (self.V**2), axis=1
@@ -78,22 +87,22 @@ class FactorizationMachine:
         self.w -= self.learning_rate * grad_w
         self.V -= self.learning_rate * grad_V
 
-    def fit(self, num_epochs=10, patience=10, tol=1e-6, print_cost=False):
+    def fit(self,X, y, num_epochs=10, patience=10, tol=1e-6, print_cost=False):
+        self._initialize_weights(X)
         best_cost = float("inf")
         no_improvement_count = 0
-        m = self.X.shape[0]
 
         for epoch in range(num_epochs):
             cost = 0
 
             # Shuffle dataset
-            indices = np.arange(m)
+            indices = np.arange(self.m)
             np.random.shuffle(indices)
-            X_shuffled = self.X[indices]
-            y_shuffled = self.y[indices]
+            X_shuffled = X[indices]
+            y_shuffled = y[indices]
 
             # Process mini-batches
-            for i in range(0, m, self.batch_size):
+            for i in range(0, self.m, self.batch_size):
                 X_batch = []
                 y_batch = []
                 batch_indices = indices[i : i + self.batch_size]
@@ -114,7 +123,7 @@ class FactorizationMachine:
                 y_pred_batch = np.array([self._predict_row(Xi) for Xi in X_batch])
                 cost += np.mean(self._calc_cost(y_batch, y_pred_batch))
 
-            cost /= m // self.batch_size  # Average cost over mini-batches
+            cost /= self.m // self.batch_size  # Average cost over mini-batches
             self.costs.append(cost)
 
             # Early stopping
@@ -137,3 +146,13 @@ class FactorizationMachine:
         mse = np.mean((y_true - y_pred) ** 2)
         rmse = np.sqrt(mse)
         return mse, rmse
+
+
+    def save_model(self, filepath):
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_model(filepath):
+        with open(filepath, 'rb') as f:
+            return pickle.load(f)
