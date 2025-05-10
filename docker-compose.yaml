@@ -164,6 +164,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    volumes:
+      - ./models:/opt/models
+
     environment:
       <<: *airflow-common-env
       # Required to handle warm shutdown of the celery workers properly
