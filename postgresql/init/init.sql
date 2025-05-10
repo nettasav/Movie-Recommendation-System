@@ -65,6 +65,13 @@ CREATE TABLE info (
 COPY info
 FROM '/docker-entrypoint-initdb.d/u.info';
 
+CREATE TABLE IF NOT EXISTS model_metrics (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    metric_name TEXT,
+    metric_value FLOAT
+);
+
 
 -- CREATE TABLE genre (
 -- 	"0" TEXT, 
