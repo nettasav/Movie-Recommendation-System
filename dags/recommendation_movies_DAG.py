@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from random import randint
 import time
 import pandas as pd
+from datetime import datetime
+from sklearn.metrics import ndcg_score
 
 from sqlalchemy import create_engine
 import psycopg2
@@ -13,13 +15,13 @@ import logging
 from fm_model_MBGD import FactorizationMachine
 
 def _data_ingestion():
+    # dummy task
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
     with engine.connect() as con:
         rs = con.execute("SELECT * FROM data LIMIT 10")
 
     for row in rs:
         print(row)
-
 
 def _create_movie_ranking_table():
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
@@ -65,32 +67,142 @@ def _create_watching_list_table():
     for row in rs:
         print(row)
 
-def _train():
+
+
+def _train(**context):
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
-    query = """
-            SELECT user_id, movie_id, rating
-            FROM data
-            """
-    with engine.connect() as con:
-        con.execute(query)
-        rs = con.execute(query)
+    query = "SELECT user_id, movie_id, rating FROM data"
+    df = pd.read_sql(query, con=engine)
 
-    df = pd.read_sql(query, engine)
+    N = 5  # Leave-N-Out
 
-    X = df[["user_id", "movie_id"]].values
-    y = df["rating"].values
+    train_rows = []
+    test_rows = []
+
+    for user_id, user_df in df.groupby("user_id"):
+        if len(user_df) <= N:
+            train_rows.append(user_df)
+            continue
+        user_df = user_df.sort_values(by="movie_id", ascending=True)  # stable & deterministic
+        test_rows.append(user_df.iloc[-N:])   # last N for test
+        train_rows.append(user_df.iloc[:-N])  # rest for training
+
+    train_df = pd.concat(train_rows)
+    test_df = pd.concat(test_rows)
+
+    # Save to database
+    # train_df.to_sql("train_data", engine, if_exists="replace", index=False)
+    test_df.to_sql("test_data", engine, if_exists="replace", index=False)
+
+    # print("Leave-5-Out split completed and saved.")
+
+    
+    
+    # engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    # query = """
+    #         SELECT user_id, movie_id, rating
+    #         FROM data
+    #         """
+    # with engine.connect() as con:
+    #     con.execute(query)
+    #     rs = con.execute(query)
+
+    # df = pd.read_sql(query, engine)
+
+    X = train_df[["user_id", "movie_id"]].values
+    y = train_df["rating"].values
 
     fm_model = FactorizationMachine(X, y, k=20, lambda_L2=0.001, learning_rate=0.001, batch_size=128
         )
     fm_model.fit(num_epochs=30, patience=2, tol=1e-6, print_cost=True)
-    y_pred = fm_model.predict(X)
+    
+    # current_datetime = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    run_id = context["run_id"]
+    # file_name = f"fm_model_{current_datetime}.pkl"
+    file_name = f"fm_model_{run_id}.pkl"
 
-    df_predictions = df[["user_id", "movie_id"]].copy()
-    df_predictions["predicted_rating"] = y_pred
+    model_path = f"/opt/models/{file_name}"
+    fm_model.save_model(model_path)
 
-    df_predictions.to_sql("predicted_ratings", engine, if_exists="append", index=False)
+    # y_pred = fm_model.predict(X)
 
+    # df_predictions = df[["user_id", "movie_id"]].copy()
+    # df_predictions["predicted_rating"] = y_pred
 
+    # df_predictions.to_sql("predicted_ratings", engine, if_exists="append", index=False)
+
+def _evaluate(**context):
+    run_id = context["run_id"]
+    model_path = f"/opt/models/fm_model_{run_id}.pkl"
+    loaded_model = FactorizationMachine.load_model(model_path)
+
+    engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    query = "SELECT user_id, movie_id, rating FROM test_data"
+    test_df  = pd.read_sql(query, con=engine)
+
+    y_true = test_df ['rating'].values
+    X_test = test_df [["user_id", "movie_id"]].values
+
+    y_pred = loaded_model.predict(X_test)
+    
+    test_df["predicted"] = y_pred
+    test_df["true"] = y_true
+
+    ndcg_scores = []
+    for user_id, group in test_df.groupby("user_id"):
+        if len(group) < 2:
+            continue  # skip if there's nothing to rank
+
+        # Sort by predicted ratings
+        y_true_group = group.sort_values("predicted", ascending=False)["true"].values.reshape(1, -1)
+        ideal_group = group.sort_values("true", ascending=False)["true"].values.reshape(1, -1)
+
+        ndcg = ndcg_score(ideal_group, y_true_group)
+        ndcg_scores.append(ndcg)
+
+    mean_ndcg = sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0
+    print(f"Mean nDCG@{len(group)}: {mean_ndcg:.4f}")
+
+    with engine.connect() as con:
+        insert_query = """
+            INSERT INTO model_metrics (timestamp, metric_name, metric_value, run_id)
+            VALUES (%s, %s, %s)
+        """
+        con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
+    try:
+        query_best_metric = "SELECT metric_value FROM best_score"
+        best_score = pd.read_sql(query_best_metric, con=engine)
+    except:
+        with engine.connect() as con:
+            insert_query = """
+                INSERT INTO best_score (timestamp, metric_name, metric_value, run_id)
+                VALUES (%s, %s, %s)
+            """
+            con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
+       
+def _compare_metric_and_update_model(**context):
+    run_id = context["run_id"]
+    engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    query = "SELECT user_id, movie_id FROM data"
+    X = pd.read_sql(query, con=engine)
+   
+    query_best_metric = "SELECT metric_value FROM best_score"
+    best_score = pd.read_sql(query_best_metric, con=engine)
+
+    query_current_metric = f""" SELECT * FROM model_metrics WHERE run_id='{run_id}' """
+    current_score = pd.read_sql(query_current_metric, con=engine)
+
+    if current_score < best_score:
+        model_path = f"/opt/models/fm_model_{run_id}.pkl"
+        loaded_model = FactorizationMachine.load_model(model_path)
+
+        y_pred = loaded_model.predict(X)
+
+        df_predictions = X[["user_id", "movie_id"]].copy()
+        df_predictions["predicted_rating"] = y_pred
+
+        df_predictions.to_sql("predicted_ratings", engine, if_exists="replace", index=False)
+    
 default_args = {
     "owner": "airflow",
     "retries": 3,
@@ -129,9 +241,23 @@ with DAG(
         dag=dag,
     )
 
+    evaluation_task = PythonOperator(
+        task_id="evaluate",
+        python_callable=_evaluate,
+        dag=dag,
+    )
+
+    compare_metric_and_update_model_task = PythonOperator(
+        task_id="compare_and_update",
+        python_callable=_compare_metric_and_update_model,
+        dag=dag
+    )
+   
     # Define the order of execution
     (
         ingestion_task
         >> [create_movie_ranking_table, create_watching_list_table]
         >> training_task
+        >> evaluation_task
+        >> compare_metric_and_update_model_task
     )
