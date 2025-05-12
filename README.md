@@ -37,25 +37,37 @@ docker-compose up --build
 ```
 
 3. **Access the services:**
-- **Airflow UI:** [http://localhost:8080](http://localhost:8080)
-- **API Endpoint:** [http://localhost:8000](http://localhost:8000)
+- **Airflow UI:** [http://localhost:8000](http://localhost:8000)
+- **API Endpoint:** [http://localhost:5000](http://localhost:5000)
 
 
 ## 📈 API Usage
 Once the API is running, you can access the popularity-based recommendations:
 
-- **Endpoint:** `/recommend/popular`
-- **Method:** `GET`
-- **Response:**
-```json
-{
-  "recommendations": [
-    {"title": "Movie A", "average_rating": 4.5},
-    {"title": "Movie B", "average_rating": 4.4},
-    ...
-  ]
-}
+- **Endpoint:** 
+``` bash
+http://localhost:5000/recommend/popular?user_id=<USER_ID>
 ```
+- **Query Parameter:** user_id (integer): The ID of the user to generate recommendations for
+- **Method:** `GET`
+- **Example Request:**
+``` bash
+curl http://localhost:5000/recommend/popular?user_id=<USER_ID>
+```
+- **Example Response:**
+```json
+[
+  "Inception",
+  "Pulp Fiction",
+  "The Dark Knight",
+  "The Matrix",
+  "Fight Club"
+]
+```
+- **Output Format:** A JSON array of top 5 movie titles (list[str]).
+- **Error Handling:**
+- Returns an HTML error page if user_id is invalid or something fails internally
+- Status code: 400 or 500
 
 ## 📄 License
 This project is licensed under the MIT License. See the LICENSE file for details.
