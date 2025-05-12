@@ -1,5 +1,5 @@
 # 🎬 Movie Recommendation System – Phase 2: Factorization Machines
-Welcome to the Movie Recommendation System project! This repository showcases a modular and extensible framework for building movie recommendation engines. Each branch represents a distinct recommendation strategy. This Phase 2: Factorization Machines branch focuses on a Factorization Machines (FMs)-based recommendation approach, designing to provide personalized movie recommendations based on user preferences and historical data.
+Welcome to the Movie Recommendation System project! This repository showcases a modular and extensible framework for building movie recommendation engines. Each branch represents a distinct recommendation strategy. This Phase 2 - Factorization Machines branch focuses on a Factorization Machines (FMs)-based recommendation approach, designing to provide personalized movie recommendations based on user preferences and historical data.
 
 ## 🧠 Phase 2: Factorization Machines Based Recommendation
 This project implements a movie recommendation system using Factorization Machines (FMs), a powerful model for capturing interactions between variables in sparse datasets. Unlike the baseline model in Phase 1, which provided the same recommendations to all users, this phase captures user-item interactions to tailor suggestions to individual preferences. The entire workflow is orchestrated using Apache Airflow, with data stored in a PostgreSQL database. A **Flask API** serves the recommendations to end-users.
@@ -60,15 +60,14 @@ curl "http://localhost:5000/recommend/fm?user_id=123"
 
 - **Example Response:**
 ```json
-{
-  "recommendations": [
+[
   "The Shawshank Redemption",
   "Forrest Gump",
   "Inception",
   "The Dark Knight",
   "Pulp Fiction"
   ]
-}
+
 ```
 
 ## 📄 License
