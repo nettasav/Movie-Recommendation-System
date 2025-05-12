@@ -192,7 +192,7 @@ def _compare_metric_and_update_model(**context):
     query_current_metric = f""" SELECT * FROM model_metrics WHERE run_id='{run_id}' """
     current_score = pd.read_sql(query_current_metric, con=engine)
 
-    if current_score < best_score:
+    if current_score > best_score:
         model_path = f"/opt/models/fm_model_{run_id}.pkl"
         loaded_model = FactorizationMachine.load_model(model_path)
 
