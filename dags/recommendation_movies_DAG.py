@@ -2,7 +2,6 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from datetime import datetime, timedelta
 from random import randint
-import time
 import pandas as pd
 from datetime import datetime
 from sklearn.metrics import ndcg_score
@@ -11,8 +10,20 @@ from sqlalchemy import create_engine
 import psycopg2
 import logging
 
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
 
-from fm_model_MBGD import FactorizationMachine
+import torch
+from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import numpy as np
+import matplotlib.pyplot as plt
+
+from triplet_model import TwoTowerTripletNN, TripletLoss
+from data_loader import MovieLensTripletDataset, generate_triplets
+
 
 def _data_ingestion():
     # dummy task
@@ -74,25 +85,54 @@ def _train(**context):
     query = "SELECT user_id, movie_id, rating FROM data"
     df = pd.read_sql(query, con=engine)
 
-    N = 5  # Leave-N-Out
+    # Encode userId and movieId
+    user_encoder = LabelEncoder()
+    movie_encoder = LabelEncoder()
+    df['userId'] = user_encoder.fit_transform(df['userId'])
+    df['movieId'] = movie_encoder.fit_transform(df['movieId'])
 
-    train_rows = []
-    test_rows = []
+    num_users = df['userId'].nunique()
+    num_movies = df['movieId'].nunique()
+    
+    unique_users = df['userId'].unique()
+    train_users, test_users = train_test_split(unique_users, test_size=0.2, random_state=42)
+    train_users, val_users = train_test_split(train_users, test_size=0.1, random_state=42)
 
-    for user_id, user_df in df.groupby("user_id"):
-        if len(user_df) <= N:
-            train_rows.append(user_df)
-            continue
-        user_df = user_df.sort_values(by="movie_id", ascending=True)  # stable & deterministic
-        test_rows.append(user_df.iloc[-N:])   # last N for test
-        train_rows.append(user_df.iloc[:-N])  # rest for training
+    train_df = df[df['userId'].isin(train_users)]
+    val_df = df[df['userId'].isin(val_users)]
+    test_df = df[df['userId'].isin(test_users)]
+    
+    # train_triplets = generate_triplets(train_df)
+    # val_triplets = generate_triplets(val_df)
+    # test_triplets = generate_triplets(test_df)
 
-    train_df = pd.concat(train_rows)
-    test_df = pd.concat(test_rows)
+    train_dataset = MovieLensTripletDataset(train_df)
+    val_dataset = MovieLensTripletDataset(val_df)
+    test_dataset = MovieLensTripletDataset(test_df)
+
+    BATCH_SIZE = 256
+
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+
+    model = TwoTowerTripletNN(num_users, num_movies, embedding_dim=64)
+    criterion = TripletLoss(margin=1.0)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
+
+    train_losses, val_losses = model.fit(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        epochs=10,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    )
 
     # Save to database
     # train_df.to_sql("train_data", engine, if_exists="replace", index=False)
-    test_df.to_sql("test_data", engine, if_exists="replace", index=False)
+    test_df.to_sql("test_data_two_tower", engine, if_exists="replace", index=False)
 
     # print("Leave-5-Out split completed and saved.")
 
