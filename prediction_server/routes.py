@@ -17,6 +17,10 @@ def main_page():
 @bp.route("/watched_movies")
 def watched_movies():
     user_id = request.args.get("user_id", "")
+    
+    if not user_id.isdigit():
+        return render_template("error.html", user_id=user_id), 400
+    
     try:
         query = f"SELECT * FROM watching_list WHERE user_id={user_id};"
         with engine.connect() as con:
@@ -29,8 +33,12 @@ def watched_movies():
 
 
 @bp.route("/recommend/popular")
-def predict_movies():
+def predict_movies_popular():
     user_id = request.args.get("user_id", "")
+    
+    if not user_id.isdigit():
+        return render_template("error.html", user_id=user_id), 400
+    
     try:
         already_seen_movies_by_user_id = (
             f"select * from watching_list where user_id={user_id}"
@@ -58,7 +66,28 @@ def predict_movies():
 @bp.route("/recommend/fm")
 def predict_movies_fm():
     user_id = request.args.get("user_id", "")
+    
+    if not user_id.isdigit():
+        return render_template("error.html", user_id=user_id), 400
+    
     try:        
+        # Check if the user exists in predicted_ratings
+        is_exist_query = f"""
+            SELECT 1
+            FROM predicted_ratings
+            WHERE user_id = {user_id}
+            LIMIT 1;
+        """
+        with engine.connect() as con:
+            result = con.execute(text(is_exist_query)).fetchone()
+        
+        if not result:
+            print(f"Cold start: user_id {user_id} not found in predicted_ratings. Using popular fallback.")
+            ratings_query = f"select movie_id,avg_rating, movie_title from ratings_view LIMIT 5"
+            top5_ratings = pd.read_sql(ratings_query, con=engine)
+            return top5_ratings.movie_title.tolist()
+
+        
         query = f"""
             SELECT pr.movie_id, pr.predicted_rating, m.title AS movie_title
             FROM predicted_ratings pr
@@ -66,13 +95,13 @@ def predict_movies_fm():
             JOIN watching_list wl ON pr.user_id = wl.user_id
             WHERE pr.movie_id != ALL(wl.watched_movies)
                 AND pr.user_id = {user_id}
-                # AND pr.user_id = :user_id  ## if use the other read_sql form with params
+                -- AND pr.user_id = :user_id  ## if use the other read_sql form with params
             ORDER BY pr.predicted_rating DESC
             LIMIT 5;
         """
-        with engine.connect() as con:
-            top_predictions = pd.read_sql(query, con)
-            #  df = pd.read_sql(text(query), con, params={"user_id": user_id}) # also change line 69 if using this
+        
+        top_predictions = pd.read_sql(query, con)
+        #  df = pd.read_sql(text(query), con, params={"user_id": user_id}) # also change line 69 if using this
 
         print(top_predictions.movie_title)
 
