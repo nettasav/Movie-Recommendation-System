@@ -1,6 +1,6 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from random import randint
 import time
 import pandas as pd
@@ -163,51 +163,75 @@ def _evaluate(**context):
     mean_ndcg = sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0
     print(f"Mean nDCG@{len(group)}: {mean_ndcg:.4f}")
 
-    with engine.connect() as con:
+    with engine.begin() as con:
         insert_query = """
             INSERT INTO model_metrics (timestamp, metric_name, metric_value, run_id)
             VALUES (%s, %s, %s)
         """
-        con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
+        con.execute(insert_query, (datetime.now(timezone.utc), "nDCG", mean_ndcg, run_id))
     try:
         query_best_metric = "SELECT metric_value FROM best_score"
         best_score = pd.read_sql(query_best_metric, con=engine)
     except:
-        with engine.connect() as con:
+        with engine.begin() as con:
             insert_query = """
                 INSERT INTO best_score (timestamp, metric_name, metric_value, run_id)
                 VALUES (%s, %s, %s)
             """
-            con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
+            con.execute(insert_query, (datetime.now(timezone.utc), "nDCG", mean_ndcg, run_id))
        
 def _compare_metric_and_update_model(**context):
     run_id = context["run_id"]
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    
+     # Get full data for predicting if needed
     query = "SELECT user_id, movie_id FROM data"
     X = pd.read_sql(query, con=engine)
    
-    query_best_metric = "SELECT metric_value FROM best_score"
-    best_score = pd.read_sql(query_best_metric, con=engine)
-
+    # Get current score
     query_current_metric = f""" SELECT * FROM model_metrics WHERE run_id='{run_id}' """
-    current_score = pd.read_sql(query_current_metric, con=engine)
+    current_score_df = pd.read_sql(query_current_metric, con=engine)
+    
+    # Get best score
+    query_best_metric = "SELECT * FROM best_score"
+    best_score_df = pd.read_sql(query_best_metric, con=engine)
+
+    current_score = current_score_df['metric_value'].iloc[0]
+    best_score = best_score_df['metric_value'].iloc[0]
 
     if current_score > best_score:
+        print(f"Updating best_score. Old: {best_score}, New: {current_score}")
+
+        with engine.begin() as con:
+            # Delete existing best score if it exists
+            con.execute("DELETE FROM best_score")
+
+            # Insert new best score
+            insert_query = """
+                INSERT INTO best_score (timestamp, metric_name, metric_value, run_id)
+                VALUES (%s, %s, %s, %s)
+            """
+            con.execute(insert_query, (datetime.now(timezone.utc), "nDCG", current_score, run_id))
+
+
         model_path = f"/opt/models/fm_model_{run_id}.pkl"
         loaded_model = FactorizationMachine.load_model(model_path)
 
-        y_pred = loaded_model.predict(X)
+        y_pred = loaded_model.predict(X.values)
 
-        df_predictions = X[["user_id", "movie_id"]].copy()
+        df_predictions = X.copy()
         df_predictions["predicted_rating"] = y_pred
 
         df_predictions.to_sql("predicted_ratings", engine, if_exists="replace", index=False)
+    else:
+        print(f"Current score ({current_score:.4f}) is not better than best score ({best_score:.4f})")
+
     
 default_args = {
     "owner": "airflow",
     "retries": 3,
     "retry_delay": timedelta(minutes=5),
-    "catchup": False,  # only the lateset non-triggered diagram will be automatically triggered
+    # "catchup": False,  # only the lateset non-triggered diagram will be automatically triggered
 }
 
 with DAG(
@@ -215,42 +239,40 @@ with DAG(
     default_args=default_args,
     schedule_interval="@daily",
     start_date=datetime(2025, 1, 30),
+    catchup=False,  # only the lateset non-triggered diagram will be automatically triggered
 ) as dag:
 
     ingestion_task = PythonOperator(
         task_id="data_ingestion",
         python_callable=_data_ingestion,
-        dag=dag,
     )
 
     create_movie_ranking_table = PythonOperator(
         task_id="create_movie_ranking_table",
         python_callable=_create_movie_ranking_table,
-        dag=dag,
     )
 
     create_watching_list_table = PythonOperator(
         task_id="create_watching_list_table",
         python_callable=_create_watching_list_table,
-        dag=dag,
     )
     
     training_task = PythonOperator(
         task_id="train",
         python_callable=_train,
-        dag=dag,
+        provide_context=True,
     )
 
     evaluation_task = PythonOperator(
         task_id="evaluate",
         python_callable=_evaluate,
-        dag=dag,
+        provide_context=True,
     )
 
     compare_metric_and_update_model_task = PythonOperator(
         task_id="compare_and_update",
         python_callable=_compare_metric_and_update_model,
-        dag=dag
+        provide_context=True,
     )
    
     # Define the order of execution
