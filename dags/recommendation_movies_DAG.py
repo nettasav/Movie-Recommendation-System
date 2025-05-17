@@ -131,50 +131,18 @@ def _train(**context):
     )
 
     # Save to database
-    # train_df.to_sql("train_data", engine, if_exists="replace", index=False)
     test_df.to_sql("test_data_two_tower", engine, if_exists="replace", index=False)
-
-    # print("Leave-5-Out split completed and saved.")
-
-    
-    
-    # engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
-    # query = """
-    #         SELECT user_id, movie_id, rating
-    #         FROM data
-    #         """
-    # with engine.connect() as con:
-    #     con.execute(query)
-    #     rs = con.execute(query)
-
-    # df = pd.read_sql(query, engine)
-
-    X = train_df[["user_id", "movie_id"]].values
-    y = train_df["rating"].values
-
-    fm_model = FactorizationMachine(X, y, k=20, lambda_L2=0.001, learning_rate=0.001, batch_size=128
-        )
-    fm_model.fit(num_epochs=30, patience=2, tol=1e-6, print_cost=True)
-    
-    # current_datetime = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+  
     run_id = context["run_id"]
-    # file_name = f"fm_model_{current_datetime}.pkl"
-    file_name = f"fm_model_{run_id}.pkl"
+    file_name = f"two_tower_model_{run_id}.pkl"
 
     model_path = f"/opt/models/{file_name}"
-    fm_model.save_model(model_path)
-
-    # y_pred = fm_model.predict(X)
-
-    # df_predictions = df[["user_id", "movie_id"]].copy()
-    # df_predictions["predicted_rating"] = y_pred
-
-    # df_predictions.to_sql("predicted_ratings", engine, if_exists="append", index=False)
+    model.save_model(model_path)
 
 def _evaluate(**context):
     run_id = context["run_id"]
-    model_path = f"/opt/models/fm_model_{run_id}.pkl"
-    loaded_model = FactorizationMachine.load_model(model_path)
+    model_path = f"/opt/models/two_tower_model_{run_id}.pkl"
+    loaded_model = TwoTowerTripletNN.load_model(model_path)
 
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
     query = "SELECT user_id, movie_id, rating FROM test_data"
@@ -233,8 +201,8 @@ def _compare_metric_and_update_model(**context):
     current_score = pd.read_sql(query_current_metric, con=engine)
 
     if current_score > best_score:
-        model_path = f"/opt/models/fm_model_{run_id}.pkl"
-        loaded_model = FactorizationMachine.load_model(model_path)
+        model_path = f"/opt/models/two_tower_model_{run_id}.pkl"
+        loaded_model = TwoTowerTripletNN.load_model(model_path)
 
         y_pred = loaded_model.predict(X)
 
