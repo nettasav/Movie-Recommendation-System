@@ -17,10 +17,10 @@ The data pipeline is orchestrated using **Apache Airflow** and follows these ste
 1. **Data Ingestion:** Airflow DAGs are scheduled to ingest new user-movie rating data into the PostgreSQL database
 2. **Model Training:** The fm_model_MBGD.py script is triggered to train the FM model using MBGD
 3. **Model Evaluation** Post-training, the model's performance is evaluated using the NDCG metric to assess the quality of recommendations
-  - The metrics are saved to the `model_metrics` table 
+    - The metrics are saved to the `model_metrics` table 
 4. **Model Comparison And Update:**
-  - The best score is saved separatly and after each run the current metric is compared to the best score to determine if this iteration of the model should replace the previous one
-  - If the model is determined to be better, we run the prediction on the entire dataset and save the results to `predicted_ratings' table for serving
+    - The best score is saved separatly and after each run the current metric is compared to the best score to determine if this iteration of the model should replace the previous one
+    - If the model is determined to be better, we run the prediction on the entire dataset and save the results to `predicted_ratings' table for serving
 
 ## 🚀 Getting Started
 ### Prerequisites
@@ -42,8 +42,8 @@ docker-compose up --build
 ```
 
 3. **Access the services:**
-- **Airflow UI:** [http://localhost:8000](http://localhost:8000)
-- **API Endpoint:** [http://localhost:5000](http://localhost:5000)
+    - **Airflow UI:** [http://localhost:8000](http://localhost:8000)
+    - **API Endpoint:** [http://localhost:5000](http://localhost:5000)
 
 
 ## 📈 API Usage
