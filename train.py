@@ -13,40 +13,48 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 
 
-def train(df):
-    user_encoder = LabelEncoder()
-    movie_encoder = LabelEncoder()
-    df["userId"] = user_encoder.fit_transform(df["userId"])
-    df["movieId"] = movie_encoder.fit_transform(df["movieId"])
+def train_model(train_df, val_df):
+    # user_encoder = LabelEncoder()
+    # movie_encoder = LabelEncoder()
+    # df["userId"] = user_encoder.fit_transform(df["userId"])
+    # df["movieId"] = movie_encoder.fit_transform(df["movieId"])
 
-    num_users = df["userId"].nunique()
-    num_movies = df["movieId"].nunique()
+    # num_users = df["userId"].nunique()
+    # num_movies = df["movieId"].nunique()
 
-    unique_users = df["userId"].unique()
-    train_users, test_users = train_test_split(
-        unique_users, test_size=0.2, random_state=42
-    )
-    train_users, val_users = train_test_split(
-        train_users, test_size=0.1, random_state=42
-    )
+    # unique_users = df["userId"].unique()
+    # train_users, test_users = train_test_split(
+    #     unique_users, test_size=0.2, random_state=42
+    # )
+    # train_users, val_users = train_test_split(
+    #     train_users, test_size=0.1, random_state=42
+    # )
 
-    train_df = df[df["userId"].isin(train_users)]
-    val_df = df[df["userId"].isin(val_users)]
-    test_df = df[df["userId"].isin(test_users)]
+    # train_df = df[df["userId"].isin(train_users)]
+    # val_df = df[df["userId"].isin(val_users)]
+    # test_df = df[df["userId"].isin(test_users)]
 
     # train_triplets = generate_triplets(train_df)
     # val_triplets = generate_triplets(val_df)
     # test_triplets = generate_triplets(test_df)
 
+    # Extract number of users and movies from the data
+    num_users = max(train_df["userId"].max(), val_df["userId"].max()) + 1
+    num_movies = max(train_df["movieId"].max(), val_df["movieId"].max()) + 1
+
     train_dataset = MovieLensTripletDataset(train_df)
     val_dataset = MovieLensTripletDataset(val_df)
-    test_dataset = MovieLensTripletDataset(test_df)
+    # test_dataset = MovieLensTripletDataset(test_df)
 
     BATCH_SIZE = 256
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset.generate_triplets(), batch_size=BATCH_SIZE, shuffle=True
+    )
+    val_loader = DataLoader(
+        val_dataset.generate_triplets(), batch_size=BATCH_SIZE, shuffle=False
+    )
+    # test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     EPOCHS = 10
 
