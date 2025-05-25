@@ -250,3 +250,4 @@ $RECYCLE.BIN/
 # ignoring data files
 postgresql/init/u.*
 two_tower_NN.ipynb
+two_tower_NN copy.ipynb
