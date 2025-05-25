@@ -87,3 +87,21 @@ CREATE TABLE IF NOT EXISTS best_score (
 -- COPY genre
 -- FROM '/docker-entrypoint-initdb.d/u.genre'
 -- DELIMITER '|';
+
+CREATE TABLE IF NOT EXISTS train_data (
+    userId BIGINT,
+    movieId BIGINT,
+    rating INT
+);
+
+CREATE TABLE IF NOT EXISTS val_data (
+    userId BIGINT,
+    movieId BIGINT,
+    rating INT
+);
+
+CREATE TABLE IF NOT EXISTS test_data (
+    userId BIGINT,
+    movieId BIGINT,
+    rating INT
+);
