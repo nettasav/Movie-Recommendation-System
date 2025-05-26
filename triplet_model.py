@@ -66,62 +66,62 @@ class TripletLoss(nn.Module):
         return loss
 
 
-def train(
-    model, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"
-):
+# def train(
+#     model, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"
+# ):
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = TwoTowerTripletNN(num_users, num_movies, embedding_dim=64).to(device)
-    criterion = TripletLoss(margin=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     model = TwoTowerTripletNN(num_users, num_movies, embedding_dim=64).to(device)
+#     criterion = TripletLoss(margin=1.0)
+#     optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
 
-    # Store losses for visualization
-    train_losses = []
-    val_losses = []
+#     # Store losses for visualization
+#     train_losses = []
+#     val_losses = []
 
-    # Training loop
-    for epoch in range(epochs):
-        model.train()
-        total_train_loss = 0
+#     # Training loop
+#     for epoch in range(epochs):
+#         model.train()
+#         total_train_loss = 0
 
-        for users, pos_movies, neg_movies in train_loader:
-            users, pos_movies, neg_movies = (
-                users.to(device),
-                pos_movies.to(device),
-                neg_movies.to(device),
-            )
+#         for users, pos_movies, neg_movies in train_loader:
+#             users, pos_movies, neg_movies = (
+#                 users.to(device),
+#                 pos_movies.to(device),
+#                 neg_movies.to(device),
+#             )
 
-            optimizer.zero_grad()
-            user_vec, pos_vec, neg_vec = model(users, pos_movies, neg_movies)
-            loss = criterion(user_vec, pos_vec, neg_vec)
-            loss.backward()
-            optimizer.step()
+#             optimizer.zero_grad()
+#             user_vec, pos_vec, neg_vec = model(users, pos_movies, neg_movies)
+#             loss = criterion(user_vec, pos_vec, neg_vec)
+#             loss.backward()
+#             optimizer.step()
 
-            total_train_loss += loss.item()
+#             total_train_loss += loss.item()
 
-        avg_train_loss = total_train_loss / len(train_loader)
-        train_losses.append(avg_train_loss)
+#         avg_train_loss = total_train_loss / len(train_loader)
+#         train_losses.append(avg_train_loss)
 
-        # Validation step
-        model.eval()
-        total_val_loss = 0
+#         # Validation step
+#         model.eval()
+#         total_val_loss = 0
 
-        with torch.no_grad():
-            for users, pos_movies, neg_movies in val_loader:
-                users, pos_movies, neg_movies = (
-                    users.to(device),
-                    pos_movies.to(device),
-                    neg_movies.to(device),
-                )
-                user_vec, pos_vec, neg_vec = model(users, pos_movies, neg_movies)
-                loss = criterion(user_vec, pos_vec, neg_vec)
-                total_val_loss += loss.item()
+#         with torch.no_grad():
+#             for users, pos_movies, neg_movies in val_loader:
+#                 users, pos_movies, neg_movies = (
+#                     users.to(device),
+#                     pos_movies.to(device),
+#                     neg_movies.to(device),
+#                 )
+#                 user_vec, pos_vec, neg_vec = model(users, pos_movies, neg_movies)
+#                 loss = criterion(user_vec, pos_vec, neg_vec)
+#                 total_val_loss += loss.item()
 
-        avg_val_loss = total_val_loss / len(val_loader)
-        val_losses.append(avg_val_loss)
+#         avg_val_loss = total_val_loss / len(val_loader)
+#         val_losses.append(avg_val_loss)
 
-        print(
-            f"Epoch {epoch+1} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}"
-        )
+#         print(
+#             f"Epoch {epoch+1} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}"
+#         )
 
-        return train_losses, val_losses
+#         return train_losses, val_losses

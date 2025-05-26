@@ -48,12 +48,8 @@ def train_model(train_df, val_df):
 
     BATCH_SIZE = 256
 
-    train_loader = DataLoader(
-        train_dataset.generate_triplets(), batch_size=BATCH_SIZE, shuffle=True
-    )
-    val_loader = DataLoader(
-        val_dataset.generate_triplets(), batch_size=BATCH_SIZE, shuffle=False
-    )
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     # test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     EPOCHS = 10
