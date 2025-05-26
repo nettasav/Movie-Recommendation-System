@@ -23,6 +23,10 @@ import matplotlib.pyplot as plt
 
 from triplet_model import TwoTowerTripletNN, TripletLoss
 from data_loader import MovieLensTripletDataset, generate_triplets
+from train import train_model
+from preprocess import split_data
+import pickle
+from evaluate_model import predict, ndcg_score
 
 
 def _data_ingestion():
@@ -33,6 +37,7 @@ def _data_ingestion():
 
     for row in rs:
         print(row)
+
 
 def _create_movie_ranking_table():
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
@@ -51,11 +56,11 @@ def _create_movie_ranking_table():
             LEFT JOIN item ON item.movie_id=ratings.movie_id
             ORDER BY avg_rating DESC;
             """
-    query2 = """ SELECT * FROM ratings_view LIMIT 10;""" 
+    query2 = """ SELECT * FROM ratings_view LIMIT 10;"""
 
     with engine.connect() as con:
         con.execute(query)
-        rs = con.execute(query2) # Create logs
+        rs = con.execute(query2)  # Create logs
 
     for row in rs:
         print(row)
@@ -79,65 +84,37 @@ def _create_watching_list_table():
         print(row)
 
 
-
-def _train(**context):
+def _preprocessing():
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
     query = "SELECT user_id, movie_id, rating FROM data"
     df = pd.read_sql(query, con=engine)
 
-    # Encode userId and movieId
-    user_encoder = LabelEncoder()
-    movie_encoder = LabelEncoder()
-    df['userId'] = user_encoder.fit_transform(df['userId'])
-    df['movieId'] = movie_encoder.fit_transform(df['movieId'])
+    train_df, val_df, test_df = split_data(df)
 
-    num_users = df['userId'].nunique()
-    num_movies = df['movieId'].nunique()
-    
-    unique_users = df['userId'].unique()
-    train_users, test_users = train_test_split(unique_users, test_size=0.2, random_state=42)
-    train_users, val_users = train_test_split(train_users, test_size=0.1, random_state=42)
+    # Save to SQL
+    train_df.to_sql("train_data", engine, if_exists="replace", index=False)
+    val_df.to_sql("val_data", engine, if_exists="replace", index=False)
+    test_df.to_sql("test_data", engine, if_exists="replace", index=False)
 
-    train_df = df[df['userId'].isin(train_users)]
-    val_df = df[df['userId'].isin(val_users)]
-    test_df = df[df['userId'].isin(test_users)]
-    
-    # train_triplets = generate_triplets(train_df)
-    # val_triplets = generate_triplets(val_df)
-    # test_triplets = generate_triplets(test_df)
-
-    train_dataset = MovieLensTripletDataset(train_df)
-    val_dataset = MovieLensTripletDataset(val_df)
-    test_dataset = MovieLensTripletDataset(test_df)
-
-    BATCH_SIZE = 256
-
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    print(f"Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
 
 
-    model = TwoTowerTripletNN(num_users, num_movies, embedding_dim=64)
-    criterion = TripletLoss(margin=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
+def _train(**context):
+    engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
+    train_query = "SELECT user_id, movie_id, rating FROM train_data"
+    train_df = pd.read_sql(train_query, con=engine)
 
-    train_losses, val_losses = model.fit(
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        epochs=10,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    )
+    val_query = "SELECT user_id, movie_id, rating FROM val_data"
+    val_df = pd.read_sql(val_query, con=engine)
 
-    # Save to database
-    test_df.to_sql("test_data_two_tower", engine, if_exists="replace", index=False)
-  
+    model = train_model(train_df, val_df)
+
     run_id = context["run_id"]
     file_name = f"two_tower_model_{run_id}.pkl"
 
     model_path = f"/opt/models/{file_name}"
     model.save_model(model_path)
+
 
 def _evaluate(**context):
     run_id = context["run_id"]
@@ -146,37 +123,73 @@ def _evaluate(**context):
 
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
     query = "SELECT user_id, movie_id, rating FROM test_data"
-    test_df  = pd.read_sql(query, con=engine)
+    test_df = pd.read_sql(query, con=engine)
 
-    y_true = test_df ['rating'].values
-    X_test = test_df [["user_id", "movie_id"]].values
+    with open("/opt/models/user_encoder.pkl", "rb") as f:
+        user_encoder = pickle.load(f)
+    with open("/opt/models/movie_encoder.pkl", "rb") as f:
+        movie_encoder = pickle.load(f)
 
-    y_pred = loaded_model.predict(X_test)
-    
-    test_df["predicted"] = y_pred
-    test_df["true"] = y_true
+    test_df["user_encoded"] = user_encoder.transform(test_df["userId"])
+    test_df["movie_encoded"] = movie_encoder.transform(test_df["movieId"])
 
+    # Set device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    k = 10
     ndcg_scores = []
-    for user_id, group in test_df.groupby("user_id"):
-        if len(group) < 2:
-            continue  # skip if there's nothing to rank
 
-        # Sort by predicted ratings
-        y_true_group = group.sort_values("predicted", ascending=False)["true"].values.reshape(1, -1)
-        ideal_group = group.sort_values("true", ascending=False)["true"].values.reshape(1, -1)
+    all_movie_ids = torch.tensor(test_df["movie_encoded"].unique()).to(device)
 
-        ndcg = ndcg_score(ideal_group, y_true_group)
-        ndcg_scores.append(ndcg)
+    # Group by user
+    for user_id, group in test_df.groupby("user_encoded"):
+        if len(group) < k:
+            continue  # skip users with fewer than k ratings
 
-    mean_ndcg = sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0
-    print(f"Mean nDCG@{len(group)}: {mean_ndcg:.4f}")
+    # 1. Candidate movies (all unique test movies)
+    candidate_movie_ids = all_movie_ids
+
+    # 2. Repeat user ID to match candidate movie count
+    user_tensor = torch.tensor([user_id] * len(candidate_movie_ids)).to(device)
+
+    # 3. Predict scores
+    scores = predict(loaded_model, user_tensor, candidate_movie_ids, device=device)
+
+    # 4. Rank movie IDs by predicted score
+    top_indices = torch.topk(scores, k).indices
+    top_movie_ids = candidate_movie_ids[top_indices].cpu().numpy()
+
+    # 5. Get actual relevance (binary: 1 if in top k for the user in test data, else 0)
+    # Create a binary relevance list: 1 if movie was actually rated by this user
+    # relevant_movies = set(group["movie_encoded"].values)
+    # relevance_scores = [
+    #     1 if movie_id in relevant_movies else 0 for movie_id in top_movie_ids
+    # ]
+    # 5. Create a dict of {movie_id: rating} for the user
+    user_ratings_dict = dict(zip(group["movie_encoded"], group["rating"]))
+
+    # 6. Relevance scores = actual ratings for the top-k predicted movies (0 if unrated)
+    relevance_scores = [
+        user_ratings_dict.get(int(movie_id), 0.0) for movie_id in top_movie_ids
+    ]
+
+    # 6. Compute NDCG for this user
+    score = ndcg_score(relevance_scores, k)
+    ndcg_scores.append(score)
+
+    # Average NDCG across users
+    mean_ndcg = np.mean(ndcg_scores)
+    print(f"Mean NDCG@{k}: {mean_ndcg:.4f}")
 
     with engine.connect() as con:
         insert_query = """
             INSERT INTO model_metrics (timestamp, metric_name, metric_value, run_id)
             VALUES (%s, %s, %s)
         """
-        con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
+        con.execute(
+            insert_query,
+            (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id),
+        )
     try:
         query_best_metric = "SELECT metric_value FROM best_score"
         best_score = pd.read_sql(query_best_metric, con=engine)
@@ -186,14 +199,18 @@ def _evaluate(**context):
                 INSERT INTO best_score (timestamp, metric_name, metric_value, run_id)
                 VALUES (%s, %s, %s)
             """
-            con.execute(insert_query, (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id))
-       
+            con.execute(
+                insert_query,
+                (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id),
+            )
+
+
 def _compare_metric_and_update_model(**context):
     run_id = context["run_id"]
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
     query = "SELECT user_id, movie_id FROM data"
     X = pd.read_sql(query, con=engine)
-   
+
     query_best_metric = "SELECT metric_value FROM best_score"
     best_score = pd.read_sql(query_best_metric, con=engine)
 
@@ -209,8 +226,11 @@ def _compare_metric_and_update_model(**context):
         df_predictions = X[["user_id", "movie_id"]].copy()
         df_predictions["predicted_rating"] = y_pred
 
-        df_predictions.to_sql("predicted_ratings", engine, if_exists="replace", index=False)
-    
+        df_predictions.to_sql(
+            "predicted_ratings", engine, if_exists="replace", index=False
+        )
+
+
 default_args = {
     "owner": "airflow",
     "retries": 3,
@@ -242,7 +262,7 @@ with DAG(
         python_callable=_create_watching_list_table,
         dag=dag,
     )
-    
+
     training_task = PythonOperator(
         task_id="train",
         python_callable=_train,
@@ -258,9 +278,9 @@ with DAG(
     compare_metric_and_update_model_task = PythonOperator(
         task_id="compare_and_update",
         python_callable=_compare_metric_and_update_model,
-        dag=dag
+        dag=dag,
     )
-   
+
     # Define the order of execution
     (
         ingestion_task
