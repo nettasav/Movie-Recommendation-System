@@ -105,3 +105,17 @@ CREATE TABLE IF NOT EXISTS test_data (
     movieId BIGINT,
     rating INT
 );
+
+CREATE TABLE user_embeddings (
+    user_id TEXT PRIMARY KEY,
+    embedding FLOAT8[],
+    run_id TEXT,
+    timestamp TIMESTAMPTZ
+);
+
+CREATE TABLE movie_embeddings (
+    movie_id TEXT PRIMARY KEY,
+    embedding FLOAT8[],
+    run_id TEXT,
+    timestamp TIMESTAMPTZ
+);
