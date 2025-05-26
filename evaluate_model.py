@@ -6,10 +6,9 @@ import torch
 def ndcg_score(relevance_scores, k):
     relevance_scores = relevance_scores[:k]
     dcg = sum(rel / np.log2(idx + 2) for idx, rel in enumerate(relevance_scores))
-    ideal = sum(
-        sorted(relevance_scores, reverse=True)[:k]
-        / np.log2(np.arange(2, 2 + len(relevance_scores)))
-    )
+    ideal_relevance = sorted(relevance_scores, reverse=True)[:k]
+    ideal = sum(rel / np.log2(idx + 2) for idx, rel in enumerate(ideal_relevance))
+
     return dcg / ideal if ideal != 0 else 0
 
 

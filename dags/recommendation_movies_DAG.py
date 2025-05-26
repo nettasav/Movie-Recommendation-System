@@ -130,8 +130,8 @@ def _evaluate(**context):
     with open("/opt/models/movie_encoder.pkl", "rb") as f:
         movie_encoder = pickle.load(f)
 
-    test_df["user_encoded"] = user_encoder.transform(test_df["userId"])
-    test_df["movie_encoded"] = movie_encoder.transform(test_df["movieId"])
+    test_df["user_encoded"] = user_encoder.transform(test_df["user_id"])
+    test_df["movie_encoded"] = movie_encoder.transform(test_df["movie_id"])
 
     # Set device
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -146,36 +146,36 @@ def _evaluate(**context):
         if len(group) < k:
             continue  # skip users with fewer than k ratings
 
-    # 1. Candidate movies (all unique test movies)
-    candidate_movie_ids = all_movie_ids
+        # 1. Candidate movies (all unique test movies)
+        candidate_movie_ids = all_movie_ids
 
-    # 2. Repeat user ID to match candidate movie count
-    user_tensor = torch.tensor([user_id] * len(candidate_movie_ids)).to(device)
+        # 2. Repeat user ID to match candidate movie count
+        user_tensor = torch.tensor([user_id] * len(candidate_movie_ids)).to(device)
 
-    # 3. Predict scores
-    scores = predict(loaded_model, user_tensor, candidate_movie_ids, device=device)
+        # 3. Predict scores
+        scores = predict(loaded_model, user_tensor, candidate_movie_ids, device=device)
 
-    # 4. Rank movie IDs by predicted score
-    top_indices = torch.topk(scores, k).indices
-    top_movie_ids = candidate_movie_ids[top_indices].cpu().numpy()
+        # 4. Rank movie IDs by predicted score
+        top_indices = torch.topk(scores, k).indices
+        top_movie_ids = candidate_movie_ids[top_indices].cpu().numpy()
 
-    # 5. Get actual relevance (binary: 1 if in top k for the user in test data, else 0)
-    # Create a binary relevance list: 1 if movie was actually rated by this user
-    # relevant_movies = set(group["movie_encoded"].values)
-    # relevance_scores = [
-    #     1 if movie_id in relevant_movies else 0 for movie_id in top_movie_ids
-    # ]
-    # 5. Create a dict of {movie_id: rating} for the user
-    user_ratings_dict = dict(zip(group["movie_encoded"], group["rating"]))
+        # 5. Get actual relevance (binary: 1 if in top k for the user in test data, else 0)
+        # Create a binary relevance list: 1 if movie was actually rated by this user
+        # relevant_movies = set(group["movie_encoded"].values)
+        # relevance_scores = [
+        #     1 if movie_id in relevant_movies else 0 for movie_id in top_movie_ids
+        # ]
+        # 5. Create a dict of {movie_id: rating} for the user
+        user_ratings_dict = dict(zip(group["movie_encoded"], group["rating"]))
 
-    # 6. Relevance scores = actual ratings for the top-k predicted movies (0 if unrated)
-    relevance_scores = [
-        user_ratings_dict.get(int(movie_id), 0.0) for movie_id in top_movie_ids
-    ]
+        # 6. Relevance scores = actual ratings for the top-k predicted movies (0 if unrated)
+        relevance_scores = [
+            user_ratings_dict.get(int(movie_id), 0.0) for movie_id in top_movie_ids
+        ]
 
-    # 6. Compute NDCG for this user
-    score = ndcg_score(relevance_scores, k)
-    ndcg_scores.append(score)
+        # 6. Compute NDCG for this user
+        score = ndcg_score(relevance_scores, k)
+        ndcg_scores.append(score)
 
     # Average NDCG across users
     mean_ndcg = np.mean(ndcg_scores)
@@ -184,7 +184,7 @@ def _evaluate(**context):
     with engine.connect() as con:
         insert_query = """
             INSERT INTO model_metrics (timestamp, metric_name, metric_value, run_id)
-            VALUES (%s, %s, %s)
+            VALUES (%s, %s, %s, %s)
         """
         con.execute(
             insert_query,
