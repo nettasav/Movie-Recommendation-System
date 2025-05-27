@@ -210,14 +210,12 @@ def _evaluate(**context):
 def _compare_metric_and_update_model(**context):
     run_id = context["run_id"]
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
-    # query = "SELECT user_id, movie_id FROM data"
-    # X = pd.read_sql(query, con=engine)
 
     query_best_metric = "SELECT metric_value FROM best_score"
-    best_score = pd.read_sql(query_best_metric, con=engine)
+    best_score = pd.read_sql(query_best_metric, con=engine).iloc[0, 0]
 
     query_current_metric = f""" SELECT * FROM model_metrics WHERE run_id='{run_id}' """
-    current_score = pd.read_sql(query_current_metric, con=engine)
+    current_score = pd.read_sql(query_current_metric, con=engine).iloc[0, 0]
 
     if current_score > best_score:
         print(
@@ -255,9 +253,14 @@ def _compare_metric_and_update_model(**context):
         user_ids = list(user_encoder.classes_)
         user_encoded = torch.tensor(user_encoder.transform(user_ids)).to(device)
 
-        with torch.no_grad():
-            user_emb = model.user_embedding(user_encoded)
-            user_vec = model.user_fc(user_emb).cpu().numpy()
+        # Generate movie embeddings
+        movie_ids = list(movie_encoder.classes_)
+        movie_encoded = torch.tensor(movie_encoder.transform(movie_ids)).to(device)
+
+        # Use predict to get embeddings
+        _, user_vec, movie_vec = predict(
+            model, user_encoded, movie_encoded, device=device, return_embeddings=True
+        )
 
         user_rows = [
             (uid, emb.tolist(), run_id, timestamp)
@@ -266,14 +269,6 @@ def _compare_metric_and_update_model(**context):
         user_embeddings_df = pd.DataFrame(
             user_rows, columns=["user_id", "embedding", "run_id", "timestamp"]
         )
-
-        # Generate movie embeddings
-        movie_ids = list(movie_encoder.classes_)
-        movie_encoded = torch.tensor(movie_encoder.transform(movie_ids)).to(device)
-
-        with torch.no_grad():
-            movie_emb = model.movie_embedding(movie_encoded)
-            movie_vec = model.movie_fc(movie_emb).cpu().numpy()
 
         movie_rows = [
             (mid, emb.tolist(), run_id, timestamp)
@@ -292,30 +287,6 @@ def _compare_metric_and_update_model(**context):
             "user_embeddings", engine, if_exists="replace", index=False
         )
 
-        # with engine.begin() as con:
-        # TODO: Update best_score table
-        # con.execute("UPDATE best_score SET metric_value = %s", (current_score,))
-
-        # # Clear existing entries for this run_id to avoid duplicates
-        # con.execute("DELETE FROM user_embeddings WHERE run_id = %s", (run_id,))
-        # con.execute("DELETE FROM movie_embeddings WHERE run_id = %s", (run_id,))
-
-        # # Insert embeddings
-        # con.execute(
-        #     """
-        #     INSERT INTO user_embeddings (user_id, embedding, run_id, timestamp)
-        #     VALUES %s
-        # """,
-        #     user_rows,
-        # )
-
-        # con.execute(
-        #     """
-        #     INSERT INTO movie_embeddings (movie_id, embedding, run_id, timestamp)
-        #     VALUES %s
-        # """,
-        #     movie_rows,
-        # )
     else:
         print(
             f"No improvement: current model (metric={current_score:.4f}) ≤ best (metric={best_score:.4f})"
