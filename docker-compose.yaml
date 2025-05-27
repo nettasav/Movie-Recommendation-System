@@ -294,7 +294,8 @@ services:
 
   # end of airflow
   postgres_movies:
-    image: postgres:13
+    # image: postgres:13
+    image: ankane/pgvector
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow

@@ -1,3 +1,6 @@
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- CREATE DATABASE movies;
 
 CREATE TABLE data (
@@ -108,14 +111,14 @@ CREATE TABLE IF NOT EXISTS test_data (
 
 CREATE TABLE user_embeddings (
     user_id TEXT PRIMARY KEY,
-    embedding FLOAT8[],
+    embedding vector(64),
     run_id TEXT,
     timestamp TIMESTAMPTZ
 );
 
 CREATE TABLE movie_embeddings (
     movie_id TEXT PRIMARY KEY,
-    embedding FLOAT8[],
+    embedding vector(64),
     run_id TEXT,
     timestamp TIMESTAMPTZ
 );
