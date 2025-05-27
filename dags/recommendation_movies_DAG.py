@@ -3,7 +3,8 @@ from airflow.operators.python import PythonOperator, BranchPythonOperator
 from datetime import datetime, timedelta
 from random import randint
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
 from sklearn.metrics import ndcg_score
 
 from sqlalchemy import create_engine
@@ -190,6 +191,7 @@ def _evaluate(**context):
             insert_query,
             (datetime.now(datetime.timezone.utc), "nDCG", mean_ndcg, run_id),
         )
+    ## TODO: change to if
     try:
         query_best_metric = "SELECT metric_value FROM best_score"
         best_score = pd.read_sql(query_best_metric, con=engine)
@@ -208,8 +210,8 @@ def _evaluate(**context):
 def _compare_metric_and_update_model(**context):
     run_id = context["run_id"]
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
-    query = "SELECT user_id, movie_id FROM data"
-    X = pd.read_sql(query, con=engine)
+    # query = "SELECT user_id, movie_id FROM data"
+    # X = pd.read_sql(query, con=engine)
 
     query_best_metric = "SELECT metric_value FROM best_score"
     best_score = pd.read_sql(query_best_metric, con=engine)
@@ -218,16 +220,105 @@ def _compare_metric_and_update_model(**context):
     current_score = pd.read_sql(query_current_metric, con=engine)
 
     if current_score > best_score:
+        print(
+            f"New best model found (run_id={run_id}) with metric {current_score:.4f} > {best_score:.4f}"
+        )
+        with engine.begin() as con:
+            # Delete existing best score if it exists
+            con.execute("DELETE FROM best_score")
+
+            # Insert new best score
+            insert_query = """
+                INSERT INTO best_score (timestamp, metric_name, metric_value, run_id)
+                VALUES (%s, %s, %s, %s)
+            """
+            con.execute(
+                insert_query,
+                (datetime.now(timezone.utc), "nDCG", current_score, run_id),
+            )
+
         model_path = f"/opt/models/two_tower_model_{run_id}.pkl"
-        loaded_model = TwoTowerTripletNN.load_model(model_path)
+        model = TwoTowerTripletNN.load_model(model_path)
+        model.eval()
 
-        y_pred = loaded_model.predict(X)
+        with open("/opt/models/user_encoder.pkl", "rb") as f:
+            user_encoder = pickle.load(f)
+        with open("/opt/models/movie_encoder.pkl", "rb") as f:
+            movie_encoder = pickle.load(f)
 
-        df_predictions = X[["user_id", "movie_id"]].copy()
-        df_predictions["predicted_rating"] = y_pred
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model.to(device)
 
-        df_predictions.to_sql(
-            "predicted_ratings", engine, if_exists="replace", index=False
+        timestamp = datetime.datetime.now(datetime.timezone.utc)
+
+        # Generate user embeddings
+        user_ids = list(user_encoder.classes_)
+        user_encoded = torch.tensor(user_encoder.transform(user_ids)).to(device)
+
+        with torch.no_grad():
+            user_emb = model.user_embedding(user_encoded)
+            user_vec = model.user_fc(user_emb).cpu().numpy()
+
+        user_rows = [
+            (uid, emb.tolist(), run_id, timestamp)
+            for uid, emb in zip(user_ids, user_vec)
+        ]
+        user_embeddings_df = pd.DataFrame(
+            user_rows, columns=["user_id", "embedding", "run_id", "timestamp"]
+        )
+
+        # Generate movie embeddings
+        movie_ids = list(movie_encoder.classes_)
+        movie_encoded = torch.tensor(movie_encoder.transform(movie_ids)).to(device)
+
+        with torch.no_grad():
+            movie_emb = model.movie_embedding(movie_encoded)
+            movie_vec = model.movie_fc(movie_emb).cpu().numpy()
+
+        movie_rows = [
+            (mid, emb.tolist(), run_id, timestamp)
+            for mid, emb in zip(movie_ids, movie_vec)
+        ]
+        movie_embeddings_df = pd.DataFrame(
+            movie_rows, columns=["movie_id", "embedding", "run_id", "timestamp"]
+        )
+
+        #  Save to DB
+
+        movie_embeddings_df.to_sql(
+            "movie_embeddings", engine, if_exists="replace", index=False
+        )
+        user_embeddings_df.to_sql(
+            "user_embeddings", engine, if_exists="replace", index=False
+        )
+
+        # with engine.begin() as con:
+        # TODO: Update best_score table
+        # con.execute("UPDATE best_score SET metric_value = %s", (current_score,))
+
+        # # Clear existing entries for this run_id to avoid duplicates
+        # con.execute("DELETE FROM user_embeddings WHERE run_id = %s", (run_id,))
+        # con.execute("DELETE FROM movie_embeddings WHERE run_id = %s", (run_id,))
+
+        # # Insert embeddings
+        # con.execute(
+        #     """
+        #     INSERT INTO user_embeddings (user_id, embedding, run_id, timestamp)
+        #     VALUES %s
+        # """,
+        #     user_rows,
+        # )
+
+        # con.execute(
+        #     """
+        #     INSERT INTO movie_embeddings (movie_id, embedding, run_id, timestamp)
+        #     VALUES %s
+        # """,
+        #     movie_rows,
+        # )
+    else:
+        print(
+            f"No improvement: current model (metric={current_score:.4f}) ≤ best (metric={best_score:.4f})"
         )
 
 
