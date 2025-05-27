@@ -18,7 +18,7 @@ def ndcg_score(relevance_scores, k):
 #     return scores.flatten()  # shape: (num_candidates,)
 
 
-def predict(model, user_ids, movie_ids, device="cpu"):
+def predict(model, user_ids, movie_ids, device="cpu", return_embeddings=False):
     """
     Given user and movie IDs, return similarity scores from the trained model.
 
@@ -30,6 +30,9 @@ def predict(model, user_ids, movie_ids, device="cpu"):
 
     Returns:
         scores: Tensor of similarity scores.
+        user_vec (optional): User embedding vectors.
+        movie_vec (optional): Movie embedding vectors.
+
     """
     model.eval()
     model.to(device)
@@ -51,4 +54,7 @@ def predict(model, user_ids, movie_ids, device="cpu"):
         # OR: cosine similarity (optional)
         # scores = F.cosine_similarity(user_vec, movie_vec)
 
-    return scores
+    if return_embeddings:
+        return scores, user_vec, movie_vec
+    else:
+        return scores
