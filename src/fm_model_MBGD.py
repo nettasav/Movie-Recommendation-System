@@ -1,13 +1,16 @@
 import numpy as np
 import pickle
 
+
 class FactorizationMachine:
-    def __init__(self, X=None, y=None, k=10, lambda_L2=0.01, learning_rate=0.001, batch_size=32):
+    def __init__(
+        self, X=None, y=None, k=10, lambda_L2=0.01, learning_rate=0.001, batch_size=32
+    ):
         self.k = k
-        self.batch_size = batch_size 
+        self.batch_size = batch_size
         self.lambda_L2 = lambda_L2
         self.learning_rate = learning_rate
-        
+
         self.w0 = None
         self.W = None
         self.V = None
@@ -24,7 +27,6 @@ class FactorizationMachine:
         self.w = np.random.randn(1, sum(max_values) + 2)
         self.w0 = 0
 
-    
     def _one_hot_encoder(self, Xi, max_values):
         encoded_Xi = np.empty(0, dtype=int)
         for idx, feature in enumerate(Xi):
@@ -43,7 +45,9 @@ class FactorizationMachine:
 
     def predict(self, X):
         max_values = np.max(X, axis=0)
-        X_encoded = np.array([self._one_hot_encoder(X[i], max_values) for i in range(X.shape[0])])
+        X_encoded = np.array(
+            [self._one_hot_encoder(X[i], max_values) for i in range(X.shape[0])]
+        )
         linear_term = self.w0 + np.dot(X_encoded, self.w.T)
         interaction_term = 0.5 * np.sum(
             (X_encoded @ self.V) ** 2 - (X_encoded**2) @ (self.V**2), axis=1
@@ -87,8 +91,9 @@ class FactorizationMachine:
         self.w -= self.learning_rate * grad_w
         self.V -= self.learning_rate * grad_V
 
-    def fit(self,X, y, num_epochs=10, patience=10, tol=1e-6, print_cost=False):
+    def fit(self, X, y, num_epochs=10, patience=10, tol=1e-6, print_cost=False):
         self._initialize_weights(X)
+        max_values = np.max(X, axis=0)
         best_cost = float("inf")
         no_improvement_count = 0
 
@@ -107,7 +112,7 @@ class FactorizationMachine:
                 y_batch = []
                 batch_indices = indices[i : i + self.batch_size]
                 for j in batch_indices:
-                    X_batch.append(self._one_hot_encoder(X_shuffled[j]))
+                    X_batch.append(self._one_hot_encoder(X_shuffled[j], max_values))
                     y_batch.append(y_shuffled[j])
 
                 X_batch = np.array(X_batch)
@@ -147,12 +152,11 @@ class FactorizationMachine:
         rmse = np.sqrt(mse)
         return mse, rmse
 
-
     def save_model(self, filepath):
-        with open(filepath, 'wb') as f:
+        with open(filepath, "wb") as f:
             pickle.dump(self, f)
 
     @staticmethod
     def load_model(filepath):
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             return pickle.load(f)

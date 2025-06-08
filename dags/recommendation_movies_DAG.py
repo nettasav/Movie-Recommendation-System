@@ -169,14 +169,13 @@ def _train(**context):
     fm_model = FactorizationMachine(
         X, y, k=20, lambda_L2=0.001, learning_rate=0.001, batch_size=128
     )
-    fm_model.fit(num_epochs=30, patience=2, tol=1e-6, print_cost=True)
-
+    fm_model.fit(X, y, num_epochs=1, patience=2, tol=1e-6, print_cost=True)
     # current_datetime = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     run_id = context["run_id"]
     # file_name = f"fm_model_{current_datetime}.pkl"
     file_name = f"fm_model_{run_id}.pkl"
 
-    model_path = f"/opt/models/{file_name}"
+    model_path = f"/opt/airflow/models/{file_name}"
     fm_model.save_model(model_path)
 
     # y_pred = fm_model.predict(X)
@@ -189,7 +188,7 @@ def _train(**context):
 
 def _evaluate(**context):
     run_id = context["run_id"]
-    model_path = f"/opt/models/fm_model_{run_id}.pkl"
+    model_path = f"/opt/airflow/models/fm_model_{run_id}.pkl"
     loaded_model = FactorizationMachine.load_model(model_path)
 
     engine = create_engine("postgresql://airflow:airflow@postgres_movies:5432/movies")
@@ -281,7 +280,7 @@ def _compare_metric_and_update_model(**context):
                 (datetime.now(timezone.utc), "nDCG", current_score, run_id),
             )
 
-        model_path = f"/opt/models/fm_model_{run_id}.pkl"
+        model_path = f"/opt/airflow/models/fm_model_{run_id}.pkl"
         loaded_model = FactorizationMachine.load_model(model_path)
 
         y_pred = loaded_model.predict(X.values)
