@@ -69,14 +69,16 @@ x-airflow-common:
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
-    # The following line can be used to set a custom config file, stored in the local config folder
-    # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
-    # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+  # The following line can be used to set a custom config file, stored in the local config folder
+  # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
+  # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/src:/opt/airflow/src
+
   user: "${AIRFLOW_UID:-50000}:0"
   profiles:
     - airflow
@@ -164,8 +166,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    volumes:
-      - ./models:/opt/models
+    # volumes:
+    #   - ./models:/opt/models
 
     environment:
       <<: *airflow-common-env
@@ -302,7 +304,7 @@ services:
     volumes:
       - postgres-db-movies-volume:/var/lib/postgresql/data
       - ./postgresql/init:/docker-entrypoint-initdb.d
-      # - /home/netta/workspace/infinity_labs/git/python/machine_learning/recommendation_system/ml-100k:/docker-entrypoint-initdb.d:Z
+    # - /home/netta/workspace/infinity_labs/git/python/machine_learning/recommendation_system/ml-100k:/docker-entrypoint-initdb.d:Z
     profiles:
       - app
     ports:
