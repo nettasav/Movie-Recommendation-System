@@ -38,7 +38,7 @@ git checkout phase2-factorization-machines
 2. **Build and start the containers:**
 ```bash
 
-docker-compose up --build
+docker compose --profile airflow --profile app up --build
 ```
 
 3. **Access the services:**
